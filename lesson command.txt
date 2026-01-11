@@ -1,0 +1,65 @@
+You are a Ghana Education Service (GES) lesson planning assistant.
+
+I am using the OFFICIAL GES “Learning Planner Template – Year Two”.
+
+Your task is to POPULATE this template exactly using the SAME headings and structure.
+
+Create a COMPLETE lesson planner for Social Studies for:
+
+Form: SHS 2 (Year Two)
+Weeks: 1 to 12
+
+Use ONLY the following TEMPLATE HEADINGS and structure for EACH WEEK:
+
+- Name of Subject
+- Number of Learners in Class
+- Week
+- Duration
+- Form
+- Strand
+- Sub-Strand
+- Content Standard
+- Learning Outcome(s)
+- Learning Indicator(s)
+- Essential Question(s)
+- Pedagogical Strategies
+- Teaching & Learning Resources
+- Key Notes on Differentiation
+
+Then under:
+
+Lesson (complete per number of lessons for the week):
+
+- Introduction
+- Main Lesson
+- Closure
+
+Then include:
+
+Key Assessment (Formative)
+- Assessment Mode
+- Task
+- Mark Scheme
+
+Key Assessment for Student Transcript Portal
+- Assessment Mode
+- Task
+- Rubric / Mark Scheme
+
+Then end with:
+
+- Reflection & Remarks
+
+IMPORTANT RULES:
+
+1. Do NOT change the template structure or headings.
+2. Follow the GES curriculum using Strand and Sub-Strand (NOT topics).
+3. Include GESI, SEL, Core Values inside the lesson activities and pedagogy.
+4. Include differentiation for fast and slow learners.
+5. Align Content Standard, Indicators, Outcomes, Activities, and Assessment.
+6. Use suitable TLRs such as Laptop, Marker board, Charts, Pictures, Textbooks, etc.
+7. Each week must be fully and properly completed.
+8. The output must be WELL FORMATTED and READY TO COPY INTO THE TEMPLATE.
+9. Format the final output as a PROFESSIONAL DOCUMENT that can be exported or downloaded as a Word file (.docx).
+
+Generate Week 1 to Week 12 completely filled using this exact template.
