@@ -268,7 +268,7 @@ const App = () => {
         <body>
           <div class="approved-stamp">APPROVED</div>
           <div class="header">
-            <h1>GHANA NATIONAL SECONDARY SCHOOL</h1>
+            <h1>Ghana Senior High SCHOOL</h1>
             <p>Ghanasco, Tamale</p>
             <p style="font-size: 18px; font-weight: bold; margin-top: 10px;">EXEAT PASS</p>
           </div>
@@ -369,7 +369,7 @@ const App = () => {
           <div style={{ textAlign: 'center', marginBottom: '40px' }}>
             <img src="/logo.png" alt="Ghanasco Logo" style={{ width: '100px', height: '100px', objectFit: 'contain', margin: '0 auto 20px', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
             <h1 style={{ fontSize: '36px', fontWeight: 'bold', color: '#1f2937', marginBottom: '10px' }}>Ghanasco</h1>
-            <p style={{ color: '#4b5563', fontSize: '18px' }}>Ghana National Secondary School</p>
+            <p style={{ color: '#4b5563', fontSize: '18px' }}>Ghana Senior High School</p>
             <p style={{ color: '#2563eb', fontWeight: '600', marginTop: '10px' }}>Exeat Management System</p>
           </div>
 

@@ -1,0 +1,20 @@
+An internal hostname used by your Render services.
+dpg-d5i2bdnpm1nc73ee2nv0-a
+port
+5432
+db
+ghanasco_exeat
+uname
+ghanasco_exeat_user
+
+pw
+LKjEsoBSnbmnVa4I4sYKeoGTVm9BQSrw
+
+internal db url
+postgresql://ghanasco_exeat_user:LKjEsoBSnbmnVa4I4sYKeoGTVm9BQSrw@dpg-d5i2bdnpm1nc73ee2nv0-a/ghanasco_exeat
+
+ext db url
+postgresql://ghanasco_exeat_user:LKjEsoBSnbmnVa4I4sYKeoGTVm9BQSrw@dpg-d5i2bdnpm1nc73ee2nv0-a.frankfurt-postgres.render.com/ghanasco_exeat
+
+psql command
+PGPASSWORD=LKjEsoBSnbmnVa4I4sYKeoGTVm9BQSrw psql -h dpg-d5i2bdnpm1nc73ee2nv0-a.frankfurt-postgres.render.com -U ghanasco_exeat_user ghanasco_exeat
