@@ -1,8 +1,6 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// Database configuration with SSL for production - Updated
-const { Pool } = require('pg');
 const isProduction = process.env.NODE_ENV === 'production';
 
 const config = {
