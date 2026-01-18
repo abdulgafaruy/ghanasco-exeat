@@ -22,7 +22,11 @@ app.use(express.urlencoded({ extended: true }));
 const authRoutes = require('./routes/auth');
 const housesRoutes = require('./routes/houses');
 const requestsRoutes = require('./routes/requests');
+const adminRoutes = require('./routes/admin');  // ADD THIS
+const usersRoutes = require('./routes/users');
 
+app.use('/api/users', usersRoutes);
+app.use('/api/admin', adminRoutes);  // ADD THIS
 app.use('/api/requests', requestsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/houses', housesRoutes);

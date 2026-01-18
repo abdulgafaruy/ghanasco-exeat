@@ -1,440 +1,373 @@
 import React, { useState, useEffect } from 'react';
+import './App.css';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = 'http://localhost:5000/api';
 
-const App = () => {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
-  const [activeView, setActiveView] = useState('dashboard');
-  const [houses, setHouses] = useState([]);
-  const [requests, setRequests] = useState([]);
-  const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [notification, setNotification] = useState(null);
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [selectedRequest, setSelectedRequest] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterHouse, setFilterHouse] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterDate, setFilterDate] = useState('');
-  const [formData, setFormData] = useState({
-    departure_date: '',
-    departure_time: '',
-    duration: '',
-    destination: '',
-    reason: '',
-    guardian_name: '',
-    guardian_phone: '',
+  const [loginError, setLoginError] = useState('');
+  const [stats, setStats] = useState(null);
+  const [requests, setRequests] = useState([]);
+  const [houses, setHouses] = useState([]);
+  const [filters, setFilters] = useState({ status: '', house_id: '', search: '' });
+  const [showRequestForm, setShowRequestForm] = useState(false);
+  const [editingRequest, setEditingRequest] = useState(null);
+  const [requestForm, setRequestForm] = useState({
+    departure_date: '', departure_time: '', duration: '1 day',
+    destination: '', reason: '', guardian_name: '', guardian_phone: ''
   });
+  const [selectedRequests, setSelectedRequests] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [showStudentForm, setShowStudentForm] = useState(false);
+  const [editingStudent, setEditingStudent] = useState(null);
+  const [studentForm, setStudentForm] = useState({
+    student_id: '', first_name: '', last_name: '', email: '',
+    password: '', phone: '', class: '', house_id: '',
+    guardian_name: '', guardian_phone: ''
+  });
+  const [showRequestDetails, setShowRequestDetails] = useState(null);
+  const [showNoteModal, setShowNoteModal] = useState(null);
+  const [noteText, setNoteText] = useState('');
 
   useEffect(() => {
-    loadHouses();
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchUserProfile(token);
+    } else {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    if (currentUser) {
-      loadRequests();
-      loadStats();
-    }
-  }, [currentUser]);
-
-  const showNotification = (message, type = 'success') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4000);
-  };
-
-  const loadHouses = async () => {
+  const fetchUserProfile = async (token) => {
     try {
-      const response = await fetch(`${API_URL}/houses`);
-      const data = await response.json();
-      if (data.success) setHouses(data.data);
-    } catch (err) {
-      console.error('Failed to load houses:', err);
-    }
-  };
-
-  const loadRequests = async () => {
-    try {
-      const response = await fetch(`${API_URL}/requests`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const response = await fetch(`${API_URL}/auth/profile`, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      if (data.success) setRequests(data.data);
-    } catch (err) {
-      console.error('Failed to load requests:', err);
+      if (data.success) {
+        setUser(data.data);
+        fetchDashboardData(token, data.data);
+      } else {
+        localStorage.removeItem('token');
+      }
+    } catch (error) {
+      console.error('Failed to fetch profile:', error);
+      localStorage.removeItem('token');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const loadStats = async () => {
+  const fetchDashboardData = async (token, currentUser) => {
+    const userRole = currentUser || user;
     try {
-      const response = await fetch(`${API_URL}/requests/stats/overview`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const statsRes = await fetch(`${API_URL}/requests/stats/overview`, {
+        headers: { 'Authorization': `Bearer ${token || localStorage.getItem('token')}` }
+      });
+      const statsData = await statsRes.json();
+      if (statsData.success) setStats(statsData.data);
+
+      const requestsRes = await fetch(`${API_URL}/requests`, {
+        headers: { 'Authorization': `Bearer ${token || localStorage.getItem('token')}` }
+      });
+      const requestsData = await requestsRes.json();
+      if (requestsData.success) setRequests(requestsData.data);
+
+      const housesRes = await fetch(`${API_URL}/houses`, {
+        headers: { 'Authorization': `Bearer ${token || localStorage.getItem('token')}` }
+      });
+      const housesData = await housesRes.json();
+      if (housesData.success) setHouses(housesData.data);
+      
+      if (userRole?.role === 'housemaster' || userRole?.role === 'headmaster') {
+        fetchStudents(token);
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error);
+    }
+  };
+
+  const fetchStudents = async (token) => {
+    try {
+      const response = await fetch(`${API_URL}/users/students`, {
+        headers: { 'Authorization': `Bearer ${token || localStorage.getItem('token')}` }
       });
       const data = await response.json();
-      if (data.success) setStats(data.data);
-    } catch (err) {
-      console.error('Failed to load stats:', err);
+      if (data.success) setStudents(data.data);
+    } catch (error) {
+      console.error('Failed to fetch students:', error);
     }
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
+    setLoginError('');
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
-
       const data = await response.json();
-
       if (data.success) {
-        setCurrentUser(data.data.user);
-        setToken(data.data.token);
         localStorage.setItem('token', data.data.token);
-        showNotification('Login successful!');
+        setUser(data.data.user);
+        fetchDashboardData(data.data.token, data.data.user);
       } else {
-        setError(data.message || 'Login failed');
+        setLoginError(data.message);
       }
-    } catch (err) {
-      setError('Connection error. Make sure backend is running.');
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      setLoginError('Login failed. Please try again.');
     }
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    setToken(null);
     localStorage.removeItem('token');
-    setActiveView('dashboard');
+    setUser(null);
+    setStats(null);
+    setRequests([]);
+    setStudents([]);
+  };
+
+  const quickLogin = async (email, password) => {
+    setLoginEmail(email);
+    setLoginPassword(password);
+    setTimeout(() => {
+      document.getElementById('loginForm')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    }, 100);
   };
 
   const handleSubmitRequest = async (e) => {
     e.preventDefault();
-    setLoading(true);
-
     try {
-      const response = await fetch(`${API_URL}/requests`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(formData),
+      const url = editingRequest ? `${API_URL}/requests/${editingRequest.id}` : `${API_URL}/requests`;
+      const method = editingRequest ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify(requestForm)
       });
-
       const data = await response.json();
-
       if (data.success) {
-        showNotification('Exeat request submitted successfully!');
-        setFormData({
-          departure_date: '',
-          departure_time: '',
-          duration: '',
-          destination: '',
-          reason: '',
-          guardian_name: '',
-          guardian_phone: '',
-        });
-        setActiveView('dashboard');
-        loadRequests();
-        loadStats();
+        setShowRequestForm(false);
+        setEditingRequest(null);
+        setRequestForm({ departure_date: '', departure_time: '', duration: '1 day', destination: '', reason: '', guardian_name: '', guardian_phone: '' });
+        fetchDashboardData();
+        alert(data.message);
       } else {
-        showNotification(data.message || 'Failed to submit request', 'error');
+        alert(data.message);
       }
-    } catch (err) {
-      showNotification('Failed to submit request', 'error');
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      alert('Failed to submit request');
     }
   };
 
-  const handleApprove = async (requestId) => {
-    try {
-      const response = await fetch(`${API_URL}/requests/${requestId}/approve`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        showNotification('Request approved successfully!');
-        loadRequests();
-        loadStats();
-        setSelectedRequest(null);
-      }
-    } catch (err) {
-      showNotification('Failed to approve request', 'error');
-    }
-  };
-
-  const handleReject = async (requestId) => {
-    const reason = prompt('Enter rejection reason:');
+  const handleCancelRequest = async (id) => {
+    const reason = prompt('Please provide a reason for cancellation:');
     if (!reason) return;
-
     try {
-      const response = await fetch(`${API_URL}/requests/${requestId}/reject`, {
+      const response = await fetch(`${API_URL}/requests/${id}/cancel`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ rejection_reason: reason }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ reason })
       });
-
       const data = await response.json();
-
       if (data.success) {
-        showNotification('Request rejected');
-        loadRequests();
-        loadStats();
-        setSelectedRequest(null);
+        fetchDashboardData();
+        alert('Request cancelled successfully');
+      } else {
+        alert(data.message);
       }
-    } catch (err) {
-      showNotification('Failed to reject request', 'error');
+    } catch (error) {
+      alert('Failed to cancel request');
     }
   };
 
-  // Filter requests
-  const getFilteredRequests = () => {
-    return requests.filter(req => {
-      const matchSearch = req.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         req.house_name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchHouse = filterHouse === 'all' || req.house_id === parseInt(filterHouse);
-      const matchStatus = filterStatus === 'all' || req.status === filterStatus;
-      const matchDate = !filterDate || req.departure_date === filterDate;
-      return matchSearch && matchHouse && matchStatus && matchDate;
-    });
+  const handleApproveRequest = async (id) => {
+    try {
+      const response = await fetch(`${API_URL}/requests/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchDashboardData();
+        alert('Request approved successfully');
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      alert('Failed to approve request');
+    }
   };
 
-  // Export to Excel (CSV format)
-  const exportToExcel = () => {
-    const filtered = getFilteredRequests();
-    const csv = [
-      ['Student Name', 'House', 'Class', 'Date', 'Time', 'Duration', 'Destination', 'Reason', 'Status', 'Submitted'].join(','),
-      ...filtered.map(r => [
-        r.student_name,
-        r.house_name,
-        r.class,
-        r.departure_date,
-        r.departure_time,
-        r.duration,
-        r.destination,
-        `"${r.reason.replace(/"/g, '""')}"`,
-        r.status,
-        r.created_at
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ghanasco-exeat-requests-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    showNotification('Report exported successfully!');
+  const handleBatchApprove = async () => {
+    if (selectedRequests.length === 0) {
+      alert('Please select requests to approve');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/requests/batch/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ request_ids: selectedRequests })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSelectedRequests([]);
+        fetchDashboardData();
+        alert(data.message);
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      alert('Failed to batch approve');
+    }
   };
 
-  // Print Exeat Pass
-  const printExeatPass = (req) => {
-    const printWindow = window.open('', '', 'height=600,width=800');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Exeat Pass - ${req.student_name}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 40px; }
-            .header { text-align: center; border-bottom: 3px solid #2563eb; padding-bottom: 20px; margin-bottom: 30px; }
-            .header h1 { color: #2563eb; margin: 0; }
-            .header p { margin: 5px 0; color: #666; }
-            .pass-number { background: #2563eb; color: white; padding: 10px; text-align: center; font-size: 20px; font-weight: bold; margin: 20px 0; }
-            .details { margin: 20px 0; }
-            .detail-row { display: flex; padding: 10px; border-bottom: 1px solid #eee; }
-            .detail-label { font-weight: bold; width: 200px; }
-            .detail-value { flex: 1; }
-            .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; }
-            .signature-line { width: 200px; border-top: 2px solid #000; margin-top: 60px; text-align: center; padding-top: 5px; }
-            .approved-stamp { position: absolute; top: 100px; right: 50px; border: 5px solid #10b981; color: #10b981; padding: 20px; transform: rotate(-15deg); font-size: 30px; font-weight: bold; }
-            @media print { .no-print { display: none; } }
-          </style>
-        </head>
-        <body>
-          <div class="approved-stamp">APPROVED</div>
-          <div class="header">
-            <h1>Ghana Senior High SCHOOL</h1>
-            <p>Ghanasco, Tamale</p>
-            <p style="font-size: 18px; font-weight: bold; margin-top: 10px;">EXEAT PASS</p>
-          </div>
-          
-          <div class="pass-number">PASS #${String(req.id).padStart(5, '0')}</div>
-          
-          <div class="details">
-            <div class="detail-row">
-              <div class="detail-label">Student Name:</div>
-              <div class="detail-value">${req.student_name}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Student ID:</div>
-              <div class="detail-value">${req.student_id}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">House:</div>
-              <div class="detail-value">${req.house_name}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Class:</div>
-              <div class="detail-value">${req.class}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Departure Date:</div>
-              <div class="detail-value">${new Date(req.departure_date).toLocaleDateString()}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Departure Time:</div>
-              <div class="detail-value">${req.departure_time}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Duration:</div>
-              <div class="detail-value">${req.duration}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Destination:</div>
-              <div class="detail-value">${req.destination}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Reason:</div>
-              <div class="detail-value">${req.reason}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Guardian:</div>
-              <div class="detail-value">${req.guardian_name} (${req.guardian_phone})</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Approved By:</div>
-              <div class="detail-value">${req.approved_by_name || 'Pending'}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Approved Date:</div>
-              <div class="detail-value">${req.approved_at ? new Date(req.approved_at).toLocaleString() : 'Pending'}</div>
-            </div>
-          </div>
-          
-          <div class="footer">
-            <p><strong>Instructions:</strong></p>
-            <ul>
-              <li>This pass must be presented to security upon departure and return</li>
-              <li>Student must return by the specified time</li>
-              <li>Any extension must be approved by the Housemaster</li>
-              <li>This pass is non-transferable</li>
-            </ul>
-            
-            <div style="display: flex; justify-content: space-between; margin-top: 60px;">
-              <div>
-                <div class="signature-line">Housemaster</div>
-              </div>
-              <div>
-                <div class="signature-line">Security</div>
-              </div>
-            </div>
-          </div>
-          
-          <button class="no-print" onclick="window.print()" style="position: fixed; bottom: 20px; right: 20px; padding: 15px 30px; background: #2563eb; color: white; border: none; border-radius: 10px; font-size: 16px; cursor: pointer;">
-            Print Pass
-          </button>
-        </body>
-      </html>
-    `);
+  const handleRejectRequest = async (id) => {
+    const reason = prompt('Please provide a reason for rejection:');
+    if (!reason) return;
+    try {
+      const response = await fetch(`${API_URL}/requests/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ rejection_reason: reason })
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchDashboardData();
+        alert('Request rejected successfully');
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      alert('Failed to reject request');
+    }
+  };
+
+  const handleAddNote = async () => {
+    if (!noteText.trim()) return;
+    try {
+      const response = await fetch(`${API_URL}/requests/${showNoteModal}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ note: noteText })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setShowNoteModal(null);
+        setNoteText('');
+        alert('Note added successfully');
+      }
+    } catch (error) {
+      alert('Failed to add note');
+    }
+  };
+
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+    document.body.classList.toggle('dark-mode');
+  };
+
+  const handlePrintPass = (request) => {
+    const printWindow = window.open('', '_blank');
+    const passNumber = `EX${String(request.id).padStart(4, '0')}`;
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Exeat Pass</title><style>@page{margin:20mm}body{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:40px}.header{text-align:center;border-bottom:3px solid #667eea;padding-bottom:20px;margin-bottom:30px}h1{color:#667eea;font-size:28px}h2{color:#333;font-size:20px}.pass-number{background:#667eea;color:white;padding:8px 20px;border-radius:20px;display:inline-block;font-weight:bold;margin:15px 0}.section{margin:20px 0;padding:15px;background:#f8f9fa;border-radius:8px}.field{margin:12px 0;display:flex}.label{font-weight:bold;color:#555;width:180px}.value{flex:1}.approval-stamp{text-align:center;margin:30px 0;padding:20px;background:#d1fae5;border:2px dashed #059669;border-radius:10px}@media print{.no-print{display:none}}</style></head><body><div class="header"><h1>GHANA SENIOR HIGH SCHOOL</h1><h2>OFFICIAL EXEAT PASS</h2><div class="pass-number">${passNumber}</div></div><div class="section"><h3>Student Information</h3><div class="field"><span class="label">Name:</span><span class="value">${request.student_name}</span></div><div class="field"><span class="label">House:</span><span class="value">${request.house_name}</span></div></div><div class="section"><h3>Exeat Details</h3><div class="field"><span class="label">Destination:</span><span class="value">${request.destination}</span></div><div class="field"><span class="label">Date:</span><span class="value">${request.departure_date} ${request.departure_time}</span></div><div class="field"><span class="label">Duration:</span><span class="value">${request.duration}</span></div></div><div class="section"><h3>Guardian</h3><div class="field"><span class="label">Name:</span><span class="value">${request.guardian_name}</span></div><div class="field"><span class="label">Phone:</span><span class="value">${request.guardian_phone}</span></div></div><div class="approval-stamp"><h3 style="color:#059669">✓ APPROVED</h3><p>By: ${request.approved_by_name||'Administration'}</p></div><div class="no-print" style="text-align:center;margin-top:30px"><button onclick="window.print()" style="padding:12px 30px;background:#667eea;color:white;border:none;border-radius:8px;cursor:pointer">Print</button></div></body></html>`);
     printWindow.document.close();
   };
 
-  const demoAccounts = [
-    { email: 'abena.mensah@ghanasco.edu.gh', password: 'house123', role: 'Student' },
-    { email: 'matilda.adombiri@ghanasco.edu.gh', password: 'house123', role: 'Housemaster' },
-    { email: 'headmaster@ghanasco.edu.gh', password: 'house123', role: 'Headmaster' },
-  ];
+  const handleSubmitStudent = async (e) => {
+    e.preventDefault();
+    try {
+      const url = editingStudent ? `${API_URL}/users/students/${editingStudent.id}` : `${API_URL}/users/students`;
+      const method = editingStudent ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify(studentForm)
+      });
+      const data = await response.json();
+      if (data.success) {
+        setShowStudentForm(false);
+        setEditingStudent(null);
+        setStudentForm({ student_id: '', first_name: '', last_name: '', email: '', password: '', phone: '', class: '', house_id: '', guardian_name: '', guardian_phone: '' });
+        fetchStudents();
+        alert(data.message);
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      alert('Failed to save student');
+    }
+  };
 
-  const filteredRequests = getFilteredRequests();
+  const handleRemoveStudent = async (id, name) => {
+    if (!window.confirm(`Remove ${name}?`)) return;
+    try {
+      const response = await fetch(`${API_URL}/users/students/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchStudents();
+        alert('Student removed');
+      }
+    } catch (error) {
+      alert('Failed to remove student');
+    }
+  };
 
-  if (!currentUser) {
+  const handleResetPassword = async (id, name) => {
+    const newPassword = window.prompt(`New password for ${name}:`);
+    if (!newPassword) return;
+    try {
+      const response = await fetch(`${API_URL}/users/students/${id}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ new_password: newPassword })
+      });
+      const data = await response.json();
+      if (data.success) alert('Password reset');
+    } catch (error) {
+      alert('Failed');
+    }
+  };
+
+  const filteredRequests = requests.filter(req => {
+    if (filters.status && req.status !== filters.status) return false;
+    if (filters.house_id && req.house_id !== parseInt(filters.house_id)) return false;
+    if (filters.search && !req.student_name.toLowerCase().includes(filters.search.toLowerCase())) return false;
+    return true;
+  });
+
+  if (loading) {
+    return (<div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh'}}><div style={{fontSize:'24px',fontWeight:'600'}}>Loading...</div></div>);
+  }
+
+  if (!user) {
     return (
-      <div style={{ minHeight: '100vh', background: 'linear-gradient(to bottom right, #dbeafe, #e0f2fe, #cffafe)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-        <div style={{ maxWidth: '600px', width: '100%' }}>
-          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <img src="/logo.png" alt="Ghanasco Logo" style={{ width: '100px', height: '100px', objectFit: 'contain', margin: '0 auto 20px', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
-            <h1 style={{ fontSize: '36px', fontWeight: 'bold', color: '#1f2937', marginBottom: '10px' }}>Ghanasco</h1>
-            <p style={{ color: '#4b5563', fontSize: '18px' }}>Ghana Senior High School</p>
-            <p style={{ color: '#2563eb', fontWeight: '600', marginTop: '10px' }}>Exeat Management System</p>
-          </div>
-
-          <div style={{ background: 'white', borderRadius: '20px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '40px', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#1f2937', marginBottom: '10px' }}>Login</h2>
-            <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '20px' }}>
-              🔗 Connected • {houses.length} Houses
-            </p>
-
-            {error && (
-              <div style={{ background: '#fee2e2', border: '2px solid #ef4444', color: '#991b1b', padding: '12px', borderRadius: '10px', marginBottom: '20px', fontSize: '14px' }}>
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={handleLogin} style={{ marginBottom: '30px' }}>
-              <div style={{ marginBottom: '15px' }}>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>Email</label>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  required
-                  placeholder="your.email@ghanasco.edu.gh"
-                  style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px', fontSize: '14px' }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>Password</label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                  style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px', fontSize: '14px' }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                style={{ width: '100%', padding: '15px', background: loading ? '#9ca3af' : 'linear-gradient(to right, #2563eb, #0ea5e9)', color: 'white', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer' }}
-              >
-                {loading ? 'Logging in...' : 'Login'}
-              </button>
-            </form>
-
-            <div style={{ borderTop: '2px solid #e5e7eb', paddingTop: '20px' }}>
-              <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', fontWeight: '600' }}>Quick Login:</p>
-              {demoAccounts.map((acc, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => { setLoginEmail(acc.email); setLoginPassword(acc.password); }}
-                  style={{ width: '100%', textAlign: 'left', padding: '10px 15px', background: '#f3f4f6', border: '2px solid #e5e7eb', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', marginBottom: '8px' }}
-                >
-                  <div style={{ fontWeight: '600' }}>{acc.role}</div>
-                  <div style={{ fontSize: '11px', color: '#6b7280' }}>{acc.email}</div>
-                </button>
-              ))}
-              <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '10px', textAlign: 'center' }}>
-                Password: <code style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>house123</code>
-              </p>
-            </div>
+      <div className={`login-container ${darkMode?'dark':''}`}>
+        <div className="login-box">
+          <h1 style={{fontSize:'32px',fontWeight:'700',marginBottom:'10px'}}>GHANASCO</h1>
+          <h2 style={{fontSize:'20px',fontWeight:'500',marginBottom:'30px',color:'#666'}}>Exeat Management System</h2>
+          {loginError && (<div style={{background:'#fee',border:'1px solid #fcc',padding:'12px',borderRadius:'8px',marginBottom:'20px',color:'#c33'}}>{loginError}</div>)}
+          <form id="loginForm" onSubmit={handleLogin}>
+            <input type="email" placeholder="Email" value={loginEmail} onChange={(e)=>setLoginEmail(e.target.value)} style={{width:'100%',padding:'12px',marginBottom:'15px',border:'1px solid #ddd',borderRadius:'8px'}} required />
+            <input type="password" placeholder="Password" value={loginPassword} onChange={(e)=>setLoginPassword(e.target.value)} style={{width:'100%',padding:'12px',marginBottom:'20px',border:'1px solid #ddd',borderRadius:'8px'}} required />
+            <button type="submit" className="btn-primary" style={{width:'100%'}}>Login</button>
+          </form>
+          <div style={{marginTop:'30px'}}>
+            <p style={{marginBottom:'10px',color:'#666'}}>Quick Login:</p>
+            <button onClick={()=>quickLogin('abena.mensah@ghanasco.edu.gh','house123')} className="btn-secondary" style={{width:'100%',marginBottom:'8px'}}>Student</button>
+            <button onClick={()=>quickLogin('matilda.adombiri@ghanasco.edu.gh','house123')} className="btn-secondary" style={{width:'100%',marginBottom:'8px'}}>Housemaster</button>
+            <button onClick={()=>quickLogin('headmaster@ghanasco.edu.gh','house123')} className="btn-secondary" style={{width:'100%'}}>Headmaster</button>
           </div>
         </div>
       </div>
@@ -442,279 +375,34 @@ const App = () => {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(to bottom right, #dbeafe, #e0f2fe, #cffafe)' }}>
-      {notification && (
-        <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 50, padding: '15px 25px', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', background: notification.type === 'success' ? '#10b981' : '#ef4444', color: 'white', fontWeight: '600' }}>
-          {notification.message}
+    <div className={`app-container ${darkMode?'dark':''}`}>
+      <header className="app-header">
+        <div className="header-left"><div><h1 style={{fontSize:'20px',fontWeight:'700'}}>GHANASCO</h1><p style={{fontSize:'12px',color:'#666'}}>Exeat Management</p></div></div>
+        <div className="header-right">
+          <button onClick={toggleDarkMode} className="icon-btn">{darkMode?'☀️':'🌙'}</button>
+          <div style={{marginLeft:'20px'}}><strong>{user.first_name} {user.last_name}</strong><p style={{fontSize:'12px',color:'#666',textTransform:'capitalize'}}>{user.role}</p></div>
+          <button onClick={handleLogout} className="btn-secondary" style={{marginLeft:'15px'}}>Logout</button>
         </div>
-      )}
-
-      {/* Request Details Modal */}
-      {selectedRequest && (
-        <div onClick={() => setSelectedRequest(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '20px' }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderRadius: '20px', maxWidth: '600px', width: '100%', maxHeight: '90vh', overflow: 'auto', padding: '30px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '24px', fontWeight: 'bold' }}>Exeat Request Details</h2>
-              <button onClick={() => setSelectedRequest(null)} style={{ fontSize: '24px', color: '#9ca3af', border: 'none', background: 'none', cursor: 'pointer' }}>×</button>
-            </div>
-            
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'inline-block', padding: '8px 16px', borderRadius: '20px', fontSize: '14px', fontWeight: 'bold', background: selectedRequest.status === 'pending' ? '#fef3c7' : selectedRequest.status === 'approved' ? '#d1fae5' : '#fee2e2', color: selectedRequest.status === 'pending' ? '#92400e' : selectedRequest.status === 'approved' ? '#065f46' : '#991b1b' }}>
-                {selectedRequest.status.toUpperCase()}
-              </div>
-            </div>
-
-            <div style={{ background: '#f9fafb', padding: '20px', borderRadius: '12px', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' }}>{selectedRequest.student_name}</h3>
-              <p style={{ color: '#6b7280' }}>{selectedRequest.house_name} • {selectedRequest.class} • {selectedRequest.student_id}</p>
-            </div>
-
-            <div style={{ display: 'grid', gap: '15px', marginBottom: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '10px', padding: '12px', background: '#f9fafb', borderRadius: '8px' }}>
-                <strong>Date:</strong>
-                <span>{new Date(selectedRequest.departure_date).toLocaleDateString()}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '10px', padding: '12px', background: '#f9fafb', borderRadius: '8px' }}>
-                <strong>Time:</strong>
-                <span>{selectedRequest.departure_time}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '10px', padding: '12px', background: '#f9fafb', borderRadius: '8px' }}>
-                <strong>Duration:</strong>
-                <span>{selectedRequest.duration}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '10px', padding: '12px', background: '#f9fafb', borderRadius: '8px' }}>
-                <strong>Destination:</strong>
-                <span>{selectedRequest.destination}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '10px', padding: '12px', background: '#f9fafb', borderRadius: '8px' }}>
-                <strong>Reason:</strong>
-                <span>{selectedRequest.reason}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '10px', padding: '12px', background: '#f9fafb', borderRadius: '8px' }}>
-                <strong>Guardian:</strong>
-                <span>{selectedRequest.guardian_name} ({selectedRequest.guardian_phone})</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-              {selectedRequest.status === 'approved' && (
-                <button onClick={() => printExeatPass(selectedRequest)} style={{ flex: 1, padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>
-                  🖨️ Print Pass
-                </button>
-              )}
-              {(currentUser.role === 'housemaster' || currentUser.role === 'headmaster') && selectedRequest.status === 'pending' && (
-                <>
-                  <button onClick={() => handleApprove(selectedRequest.id)} style={{ flex: 1, padding: '12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>
-                    ✓ Approve
-                  </button>
-                  <button onClick={() => handleReject(selectedRequest.id)} style={{ flex: 1, padding: '12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>
-                    ✗ Reject
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ background: 'linear-gradient(to right, #1e40af, #0369a1, #1e3a8a)', color: 'white', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', position: 'sticky', top: 0, zIndex: 40 }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '15px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-              <img src="/logo.png" alt="Ghanasco" style={{ width: '48px', height: '48px', objectFit: 'contain', background: 'rgba(255,255,255,0.9)', borderRadius: '12px', padding: '8px' }} />
-              <div>
-                <h1 style={{ fontSize: '20px', fontWeight: 'bold' }}>Ghanasco</h1>
-                <p style={{ fontSize: '11px', opacity: 0.9 }}>Exeat Management System</p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-              <div style={{ textAlign: 'right' }}>
-                <p style={{ fontSize: '14px', fontWeight: '600' }}>{currentUser.first_name} {currentUser.last_name}</p>
-                <p style={{ fontSize: '11px', opacity: 0.9 }}>
-                  {currentUser.role.toUpperCase()} • {currentUser.house_name || 'All Houses'}
-                </p>
-              </div>
-              <button onClick={handleLogout} style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '10px', color: 'white', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '30px 20px 20px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '30px' }}>
-          <div style={{ background: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', borderLeft: '4px solid #2563eb' }}>
-            <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>Total</div>
-            <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1f2937' }}>{stats.total || 0}</div>
-          </div>
-          <div style={{ background: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', borderLeft: '4px solid #f59e0b' }}>
-            <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>Pending</div>
-            <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1f2937' }}>{stats.pending || 0}</div>
-          </div>
-          <div style={{ background: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', borderLeft: '4px solid #10b981' }}>
-            <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>Approved</div>
-            <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1f2937' }}>{stats.approved || 0}</div>
-          </div>
-          <div style={{ background: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', borderLeft: '4px solid #ef4444' }}>
-            <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>Rejected</div>
-            <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1f2937' }}>{stats.rejected || 0}</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <button onClick={() => setActiveView('dashboard')} style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer', background: activeView === 'dashboard' ? 'white' : 'transparent', color: activeView === 'dashboard' ? '#2563eb' : '#6b7280', boxShadow: activeView === 'dashboard' ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none' }}>
-            Dashboard
-          </button>
-          {currentUser.role === 'student' && (
-            <button onClick={() => setActiveView('newRequest')} style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer', background: activeView === 'newRequest' ? 'white' : 'transparent', color: activeView === 'newRequest' ? '#2563eb' : '#6b7280', boxShadow: activeView === 'newRequest' ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none' }}>
-              New Request
-            </button>
-          )}
-        </div>
-
-        {activeView === 'dashboard' && (
-          <div>
-            {/* Filters */}
-            <div style={{ background: 'white', borderRadius: '16px', padding: '20px', marginBottom: '20px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#6b7280' }}>Search</label>
-                  <input
-                    type="text"
-                    placeholder="Search by name or house..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    style={{ width: '100%', padding: '10px', border: '2px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}
-                  />
-                </div>
-                {(currentUser.role === 'headmaster') && (
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#6b7280' }}>House</label>
-                    <select value={filterHouse} onChange={(e) => setFilterHouse(e.target.value)} style={{ width: '100%', padding: '10px', border: '2px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
-                      <option value="all">All Houses</option>
-                      {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#6b7280' }}>Status</label>
-                  <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ width: '100%', padding: '10px', border: '2px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
-                    <option value="all">All Status</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: '#6b7280' }}>Date</label>
-                  <input
-                    type="date"
-                    value={filterDate}
-                    onChange={(e) => setFilterDate(e.target.value)}
-                    style={{ width: '100%', padding: '10px', border: '2px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}
-                  />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-                <button onClick={() => { setSearchTerm(''); setFilterHouse('all'); setFilterStatus('all'); setFilterDate(''); }} style={{ padding: '10px 20px', background: '#f3f4f6', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
-                  Clear Filters
-                </button>
-                <button onClick={exportToExcel} style={{ padding: '10px 20px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
-                  📊 Export to Excel
-                </button>
-              </div>
-            </div>
-
-            {/* Requests */}
-            <div style={{ background: 'white', borderRadius: '20px', padding: '30px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-              <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '20px' }}>
-                Exeat Requests ({filteredRequests.length})
-              </h2>
-              {filteredRequests.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
-                  <div style={{ fontSize: '48px', marginBottom: '15px' }}>📋</div>
-                  <p>No requests found</p>
-                </div>
-              ) : (
-                <div style={{ display: 'grid', gap: '15px' }}>
-                  {filteredRequests.map((req) => (
-                    <div key={req.id} onClick={() => setSelectedRequest(req)} style={{ border: '2px solid #e5e7eb', borderRadius: '12px', padding: '20px', position: 'relative', cursor: 'pointer', transition: 'all 0.2s' }} onMouseOver={(e) => e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)'} onMouseOut={(e) => e.currentTarget.style.boxShadow = 'none'}>
-                      <div style={{ position: 'absolute', top: '15px', right: '15px', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', background: req.status === 'pending' ? '#fef3c7' : req.status === 'approved' ? '#d1fae5' : '#fee2e2', color: req.status === 'pending' ? '#92400e' : req.status === 'approved' ? '#065f46' : '#991b1b' }}>
-                        {req.status.toUpperCase()}
-                      </div>
-                      <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '5px' }}>{req.student_name}</h3>
-                      <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '10px' }}>{req.house_name} • {req.class}</p>
-                      <div style={{ fontSize: '14px', color: '#374151' }}>
-                        <strong>Date:</strong> {new Date(req.departure_date).toLocaleDateString()} at {req.departure_time}
-                      </div>
-                      <div style={{ fontSize: '14px', color: '#374151' }}>
-                        <strong>Destination:</strong> {req.destination}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeView === 'newRequest' && (
-          <div style={{ background: 'white', borderRadius: '20px', padding: '30px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '20px' }}>Submit New Request</h2>
-            <form onSubmit={handleSubmitRequest}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Date *</label>
-                  <input type="date" value={formData.departure_date} onChange={(e) => setFormData({ ...formData, departure_date: e.target.value })} required min={new Date().toISOString().split('T')[0]} style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Time *</label>
-                  <input type="time" value={formData.departure_time} onChange={(e) => setFormData({ ...formData, departure_time: e.target.value })} required style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Duration *</label>
-                  <select value={formData.duration} onChange={(e) => setFormData({ ...formData, duration: e.target.value })} required style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px' }}>
-                    <option value="">Select</option>
-                    <option value="3 hours">3 hours</option>
-                    <option value="1 day">1 day</option>
-                    <option value="2 days">2 days</option>
-                    <option value="3 days">3 days</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Destination *</label>
-                  <input type="text" value={formData.destination} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} required placeholder="e.g., Home" style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px' }} />
-                </div>
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Reason *</label>
-                <textarea value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} required rows="4" placeholder="Reason for exeat..." style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px', resize: 'vertical' }} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Guardian Name *</label>
-                  <input type="text" value={formData.guardian_name} onChange={(e) => setFormData({ ...formData, guardian_name: e.target.value })} required style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Guardian Phone *</label>
-                  <input type="tel" value={formData.guardian_phone} onChange={(e) => setFormData({ ...formData, guardian_phone: e.target.value })} required placeholder="0XX XXX XXXX" style={{ width: '100%', padding: '12px', border: '2px solid #e5e7eb', borderRadius: '10px' }} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '15px' }}>
-                <button type="submit" disabled={loading} style={{ flex: 1, padding: '15px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer' }}>
-                  {loading ? 'Submitting...' : 'Submit'}
-                </button>
-                <button type="button" onClick={() => setActiveView('dashboard')} style={{ padding: '15px 30px', background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-      </div>
+      </header>
+      <nav className="app-nav">
+        <button className={activeTab==='dashboard'?'active':''} onClick={()=>setActiveTab('dashboard')}>📊 Dashboard</button>
+        <button className={activeTab==='requests'?'active':''} onClick={()=>setActiveTab('requests')}>📝 Requests</button>
+        {(user.role==='housemaster'||user.role==='headmaster')&&(<button className={activeTab==='students'?'active':''} onClick={()=>setActiveTab('students')}>👥 Students</button>)}
+        {user.role==='headmaster'&&(<><button className={activeTab==='analytics'?'active':''} onClick={()=>setActiveTab('analytics')}>📈 Analytics</button><button className={activeTab==='audit'?'active':''} onClick={()=>setActiveTab('audit')}>🔍 Audit</button></>)}
+      </nav>
+      <main className="app-main">
+        {activeTab==='dashboard'&&stats&&(<div className="dashboard"><h2 style={{fontSize:'28px',fontWeight:'700',marginBottom:'30px'}}>Welcome, {user.first_name}!</h2><div className="stats-grid"><div className="stat-card" style={{background:'linear-gradient(135deg,#667eea 0%,#764ba2 100%)'}}><h3>Total</h3><p className="stat-number">{stats.total}</p></div><div className="stat-card" style={{background:'linear-gradient(135deg,#f093fb 0%,#f5576c 100%)'}}><h3>Pending</h3><p className="stat-number">{stats.pending}</p></div><div className="stat-card" style={{background:'linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)'}}><h3>Approved</h3><p className="stat-number">{stats.approved}</p></div><div className="stat-card" style={{background:'linear-gradient(135deg,#fa709a 0%,#fee140 100%)'}}><h3>Rejected</h3><p className="stat-number">{stats.rejected}</p></div></div>{user.role==='student'&&(<div style={{marginTop:'30px'}}><button onClick={()=>setShowRequestForm(true)} className="btn-primary btn-large">➕ Submit New Request</button></div>)}<div style={{marginTop:'40px'}}><h3 style={{fontSize:'20px',fontWeight:'600',marginBottom:'20px'}}>Recent Requests</h3><div className="requests-list">{requests.slice(0,5).map(req=>(<div key={req.id} className="request-card"><div><strong>{req.student_name}</strong><p style={{fontSize:'14px',color:'#666'}}>{req.destination} • {req.departure_date}</p></div><span className={`status-badge status-${req.status}`}>{req.status}</span></div>))}</div></div></div>)}
+        {activeTab==='requests'&&(<div className="requests-tab"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'30px'}}><h2 style={{fontSize:'28px',fontWeight:'700'}}>All Requests</h2>{user.role!=='student'&&selectedRequests.length>0&&(<button onClick={handleBatchApprove} className="btn-success">✓ Approve Selected ({selectedRequests.length})</button>)}{user.role==='student'&&(<button onClick={()=>setShowRequestForm(true)} className="btn-primary">➕ New Request</button>)}</div><div className="filters-bar"><select value={filters.status} onChange={(e)=>setFilters({...filters,status:e.target.value})} style={{padding:'10px',borderRadius:'8px',border:'1px solid #ddd'}}><option value="">All Status</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>{user.role==='headmaster'&&(<select value={filters.house_id} onChange={(e)=>setFilters({...filters,house_id:e.target.value})} style={{padding:'10px',borderRadius:'8px',border:'1px solid #ddd'}}><option value="">All Houses</option>{houses.map(h=>(<option key={h.id} value={h.id}>{h.name}</option>))}</select>)}<input type="text" placeholder="Search..." value={filters.search} onChange={(e)=>setFilters({...filters,search:e.target.value})} style={{padding:'10px',borderRadius:'8px',border:'1px solid #ddd',flex:1}}/></div><div className="requests-table">{filteredRequests.length===0?(<p style={{textAlign:'center',padding:'40px',color:'#666'}}>No requests</p>):(filteredRequests.map(req=>(<div key={req.id} className="request-row">{user.role!=='student'&&req.status==='pending'&&(<input type="checkbox" checked={selectedRequests.includes(req.id)} onChange={(e)=>{if(e.target.checked){setSelectedRequests([...selectedRequests,req.id])}else{setSelectedRequests(selectedRequests.filter(id=>id!==req.id))}}} style={{marginRight:'15px'}}/>)}<div style={{flex:1}}><strong>{req.student_name}</strong><p style={{fontSize:'14px',color:'#666'}}>{req.house_name} • {req.destination} • {req.departure_date}</p></div><span className={`status-badge status-${req.status}`}>{req.status}</span><div className="action-buttons">{user.role==='student'&&req.status==='pending'&&(<><button onClick={()=>{setEditingRequest(req);setRequestForm(req);setShowRequestForm(true);}} className="btn-sm">✏️ Edit</button><button onClick={()=>handleCancelRequest(req.id)} className="btn-sm btn-danger">❌ Cancel</button></>)}{user.role!=='student'&&req.status==='pending'&&(<><button onClick={()=>handleApproveRequest(req.id)} className="btn-sm btn-success">✓</button><button onClick={()=>handleRejectRequest(req.id)} className="btn-sm btn-danger">✗</button><button onClick={()=>setShowNoteModal(req.id)} className="btn-sm">📝</button></>)}{req.status==='approved'&&(<button onClick={()=>handlePrintPass(req)} className="btn-sm btn-success">🖨️</button>)}<button onClick={()=>setShowRequestDetails(req)} className="btn-sm">👁️</button></div></div>)))}</div></div>)}
+        {activeTab==='students'&&(user.role==='housemaster'||user.role==='headmaster')&&(<div className="students-tab"><div style={{display:'flex',justifyContent:'space-between',marginBottom:'30px'}}><h2 style={{fontSize:'28px',fontWeight:'700'}}>Manage Students</h2><button onClick={()=>{setEditingStudent(null);setStudentForm({student_id:'',first_name:'',last_name:'',email:'',password:'',phone:'',class:'',house_id:user.role==='housemaster'?user.house_id:'',guardian_name:'',guardian_phone:''});setShowStudentForm(true);}} className="btn-primary">➕ Add Student</button></div><div className="requests-table">{students.length===0?(<p style={{textAlign:'center',padding:'40px',color:'#666'}}>No students</p>):(students.map(s=>(<div key={s.id} className="request-row" style={{opacity:s.is_active?1:0.5}}><div style={{flex:1}}><strong>{s.first_name} {s.last_name}</strong>{!s.is_active&&<span style={{color:'red',marginLeft:'10px'}}>(Inactive)</span>}<p style={{fontSize:'14px',color:'#666'}}>{s.student_id} • {s.class} • {s.house_name}</p><p style={{fontSize:'12px',color:'#999'}}>{s.email}</p></div><div className="action-buttons"><button onClick={()=>{setEditingStudent(s);setStudentForm({student_id:s.student_id,first_name:s.first_name,last_name:s.last_name,email:s.email,password:'',phone:s.phone||'',class:s.class||'',house_id:s.house_id,guardian_name:s.guardian_name||'',guardian_phone:s.guardian_phone||''});setShowStudentForm(true);}} className="btn-sm">✏️</button><button onClick={()=>handleResetPassword(s.id,`${s.first_name} ${s.last_name}`)} className="btn-sm">🔑</button>{s.is_active&&(<button onClick={()=>handleRemoveStudent(s.id,`${s.first_name} ${s.last_name}`)} className="btn-sm btn-danger">🗑️</button>)}</div></div>)))}</div></div>)}
+        {activeTab==='analytics'&&user.role==='headmaster'&&(<div><h2>Analytics</h2><p>Coming soon</p></div>)}
+        {activeTab==='audit'&&user.role==='headmaster'&&(<div><h2>Audit Logs</h2><p>Coming soon</p></div>)}
+      </main>
+      {showRequestForm&&(<div className="modal-overlay" onClick={()=>setShowRequestForm(false)}><div className="modal-content" onClick={(e)=>e.stopPropagation()}><h2 style={{fontSize:'24px',fontWeight:'700',marginBottom:'20px'}}>{editingRequest?'Edit':'New'} Request</h2><form onSubmit={handleSubmitRequest}><input type="date" value={requestForm.departure_date} onChange={(e)=>setRequestForm({...requestForm,departure_date:e.target.value})} style={{width:'100%',padding:'12px',marginBottom:'15px',border:'1px solid #ddd',borderRadius:'8px'}} required/><input type="time" value={requestForm.departure_time} onChange={(e)=>setRequestForm({...requestForm,departure_time:e.target.value})} style={{width:'100%',padding:'12px',marginBottom:'15px',border:'1px solid #ddd',borderRadius:'8px'}} required/><select value={requestForm.duration} onChange={(e)=>setRequestForm({...requestForm,duration:e.target.value})} style={{width:'100%',padding:'12px',marginBottom:'15px',border:'1px solid #ddd',borderRadius:'8px'}}><option value="1 day">1 Day</option><option value="2 days">2 Days</option><option value="3 days">3 Days</option><option value="1 week">1 Week</option></select><input type="text" placeholder="Destination" value={requestForm.destination} onChange={(e)=>setRequestForm({...requestForm,destination:e.target.value})} style={{width:'100%',padding:'12px',marginBottom:'15px',border:'1px solid #ddd',borderRadius:'8px'}} required/><textarea placeholder="Reason" value={requestForm.reason} onChange={(e)=>setRequestForm({...requestForm,reason:e.target.value})} style={{width:'100%',padding:'12px',marginBottom:'15px',border:'1px solid #ddd',borderRadius:'8px',minHeight:'100px'}} required/><input type="text" placeholder="Guardian Name" value={requestForm.guardian_name} onChange={(e)=>setRequestForm({...requestForm,guardian_name:e.target.value})} style={{width:'100%',padding:'12px',marginBottom:'15px',border:'1px solid #ddd',borderRadius:'8px'}} required/><input type="tel" placeholder="Guardian Phone" value={requestForm.guardian_phone} onChange={(e)=>setRequestForm({...requestForm,guardian_phone:e.target.value})} style={{width:'100%',padding:'12px',marginBottom:'20px',border:'1px solid #ddd',borderRadius:'8px'}} required/><div style={{display:'flex',gap:'10px'}}><button type="submit" className="btn-primary" style={{flex:1}}>{editingRequest?'Update':'Submit'}</button><button type="button" onClick={()=>{setShowRequestForm(false);setEditingRequest(null);}} className="btn-secondary" style={{flex:1}}>Cancel</button></div></form></div></div>)}
+      {showRequestDetails&&(<div className="modal-overlay" onClick={()=>setShowRequestDetails(null)}><div className="modal-content" onClick={(e)=>e.stopPropagation()}><h2>Request Details</h2><p><strong>Student:</strong> {showRequestDetails.student_name}</p><p><strong>House:</strong> {showRequestDetails.house_name}</p><p><strong>Destination:</strong> {showRequestDetails.destination}</p><p><strong>Date:</strong> {showRequestDetails.departure_date} {showRequestDetails.departure_time}</p><p><strong>Duration:</strong> {showRequestDetails.duration}</p><p><strong>Reason:</strong> {showRequestDetails.reason}</p><p><strong>Guardian:</strong> {showRequestDetails.guardian_name} ({showRequestDetails.guardian_phone})</p><p><strong>Status:</strong> <span className={`status-badge status-${showRequestDetails.status}`}>{showRequestDetails.status}</span></p><button onClick={()=>setShowRequestDetails(null)} className="btn-secondary" style={{width:'100%',marginTop:'20px'}}>Close</button></div></div>)}
+      {showNoteModal&&(<div className="modal-overlay" onClick={()=>setShowNoteModal(null)}><div className="modal-content" onClick={(e)=>e.stopPropagation()}><h2>Add Note</h2><textarea placeholder="Note..." value={noteText} onChange={(e)=>setNoteText(e.target.value)} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px',minHeight:'150px',marginBottom:'20px'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={handleAddNote} className="btn-primary" style={{flex:1}}>Add</button><button onClick={()=>setShowNoteModal(null)} className="btn-secondary" style={{flex:1}}>Cancel</button></div></div></div>)}
+      {showStudentForm&&(<div className="modal-overlay" onClick={()=>setShowStudentForm(false)}><div className="modal-content" style={{maxWidth:'700px'}} onClick={(e)=>e.stopPropagation()}><h2>{editingStudent?'Edit':'Add'} Student</h2><form onSubmit={handleSubmitStudent}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'15px'}}><input type="text" placeholder="Student ID*" value={studentForm.student_id} onChange={(e)=>setStudentForm({...studentForm,student_id:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}} required/><input type="text" placeholder="First Name*" value={studentForm.first_name} onChange={(e)=>setStudentForm({...studentForm,first_name:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}} required/><input type="text" placeholder="Last Name*" value={studentForm.last_name} onChange={(e)=>setStudentForm({...studentForm,last_name:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}} required/><input type="email" placeholder="Email*" value={studentForm.email} onChange={(e)=>setStudentForm({...studentForm,email:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}} required/><input type="password" placeholder={editingStudent?"New Password (optional)":"Password*"} value={studentForm.password} onChange={(e)=>setStudentForm({...studentForm,password:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}} required={!editingStudent}/><input type="tel" placeholder="Phone" value={studentForm.phone} onChange={(e)=>setStudentForm({...studentForm,phone:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}}/><input type="text" placeholder="Class" value={studentForm.class} onChange={(e)=>setStudentForm({...studentForm,class:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}}/>{user.role==='headmaster'&&(<select value={studentForm.house_id} onChange={(e)=>setStudentForm({...studentForm,house_id:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}} required><option value="">Select House*</option>{houses.map(h=>(<option key={h.id} value={h.id}>{h.name}</option>))}</select>)}<input type="text" placeholder="Guardian Name" value={studentForm.guardian_name} onChange={(e)=>setStudentForm({...studentForm,guardian_name:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}}/><input type="tel" placeholder="Guardian Phone" value={studentForm.guardian_phone} onChange={(e)=>setStudentForm({...studentForm,guardian_phone:e.target.value})} style={{width:'100%',padding:'12px',border:'1px solid #ddd',borderRadius:'8px'}}/></div><div style={{display:'flex',gap:'10px',marginTop:'20px'}}><button type="submit" className="btn-primary" style={{flex:1}}>{editingStudent?'Update':'Add'}</button><button type="button" onClick={()=>{setShowStudentForm(false);setEditingStudent(null);}} className="btn-secondary" style={{flex:1}}>Cancel</button></div></form></div></div>)}
     </div>
   );
-};
+}
 
 export default App;

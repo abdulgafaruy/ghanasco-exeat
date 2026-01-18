@@ -1,0 +1,9 @@
+git add server/config/database.js
+git commit -m "Force update database config with SSL"
+git push
+
+
+
+git add server/config/database.js
+git commit -m "Fix database.js - remove duplicate"
+git push

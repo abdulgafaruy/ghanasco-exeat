@@ -37,14 +37,21 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-const authorize = (...roles) => {
+const authorize = (roles = []) => {
   return (req, res, next) => {
+    // Make sure roles is an array
+    if (typeof roles === 'string') {
+      roles = [roles];
+    }
+
+    // Check if user role is authorized
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Insufficient permissions.'
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Access denied. Insufficient permissions.' 
       });
     }
+
     next();
   };
 };
