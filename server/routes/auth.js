@@ -24,9 +24,9 @@ router.post('/login', async (req, res) => {
     }
 
     const user = result.rows[0];
-    console.log('Comparing passwords...');
+   console.log('Comparing passwords...');
 
- const isValid = (password === 'house123');
+    const isValid = await bcrypt.compare(password, user.password_hash);
     console.log('Password valid:', isValid);
 
     if (!isValid) {

@@ -4,6 +4,262 @@ const pool = require('../config/database');
 const bcrypt = require('bcrypt');
 const { authenticate, authorize } = require('../middleware/auth');
 
+// BULK STUDENT UPLOAD API
+// Add this to: server/routes/users.js
+const multer = require('multer');
+const XLSX = require('xlsx');
+const csv = require('csv-parser');
+const fs = require('fs');
+const path = require('path');
+
+// Configure multer for file upload
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + '-' + file.originalname);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.xlsx', '.xls', '.csv'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedTypes.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'));
+    }
+  }
+});
+
+// POST /api/users/students/bulk-upload
+router.post('/students/bulk-upload', authenticate, authorize(['housemaster', 'senior_housemaster']), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+    let students = [];
+
+    // Parse file based on type
+    if (req.file.mimetype === 'text/csv') {
+      // Parse CSV
+      students = await parseCSV(filePath);
+    } else {
+      // Parse Excel
+      students = parseExcel(filePath);
+    }
+
+    // Validate students data
+    const validation = validateStudents(students, req.user);
+    if (validation.errors.length > 0) {
+      fs.unlinkSync(filePath); // Delete uploaded file
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation errors found',
+        errors: validation.errors 
+      });
+    }
+
+    // Insert students into database
+    const results = await insertStudents(validation.validStudents, req.user, req.ip);
+
+    // Delete uploaded file
+    fs.unlinkSync(filePath);
+
+    res.json({
+      success: true,
+      message: `Successfully uploaded ${results.successful} students`,
+      data: {
+        successful: results.successful,
+        failed: results.failed,
+        errors: results.errors
+      }
+    });
+
+  } catch (error) {
+    console.error('Bulk upload error:', error);
+    if (req.file) fs.unlinkSync(req.file.path); // Clean up
+    res.status(500).json({ success: false, message: 'Failed to upload students', error: error.message });
+  }
+});
+
+// Parse CSV file
+function parseCSV(filePath) {
+  return new Promise((resolve, reject) => {
+    const students = [];
+    fs.createReadStream(filePath)
+      .pipe(csv())
+      .on('data', (row) => {
+        students.push(row);
+      })
+      .on('end', () => {
+        resolve(students);
+      })
+      .on('error', reject);
+  });
+}
+
+// Parse Excel file
+function parseExcel(filePath) {
+  const workbook = XLSX.readFile(filePath);
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const students = XLSX.utils.sheet_to_json(worksheet);
+  return students;
+}
+
+// Validate students data
+function validateStudents(students, user) {
+  const errors = [];
+  const validStudents = [];
+
+  students.forEach((student, index) => {
+    const rowNum = index + 2; // +2 because Excel rows start at 1 and header is row 1
+    const studentErrors = [];
+
+    // Required fields
+    if (!student.student_id || student.student_id.trim() === '') {
+      studentErrors.push(`Row ${rowNum}: Student ID is required`);
+    }
+    if (!student.first_name || student.first_name.trim() === '') {
+      studentErrors.push(`Row ${rowNum}: First name is required`);
+    }
+    if (!student.last_name || student.last_name.trim() === '') {
+      studentErrors.push(`Row ${rowNum}: Last name is required`);
+    }
+    if (!student.email || student.email.trim() === '') {
+      studentErrors.push(`Row ${rowNum}: Email is required`);
+    } else if (!isValidEmail(student.email)) {
+      studentErrors.push(`Row ${rowNum}: Invalid email format`);
+    }
+    if (!student.class || student.class.trim() === '') {
+      studentErrors.push(`Row ${rowNum}: Class is required`);
+    }
+
+    // House validation
+    if (user.role === 'housemaster') {
+      student.house_id = user.house_id; // Force housemaster's house
+    } else if (!student.house_id || student.house_id === '') {
+      studentErrors.push(`Row ${rowNum}: House ID is required`);
+    }
+
+    if (studentErrors.length > 0) {
+      errors.push(...studentErrors);
+    } else {
+      validStudents.push(student);
+    }
+  });
+
+  return { validStudents, errors };
+}
+
+// Validate email format
+function isValidEmail(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+// Insert students into database
+async function insertStudents(students, user, ip) {
+  const bcrypt = require('bcrypt');
+  let successful = 0;
+  let failed = 0;
+  const errors = [];
+
+  for (const student of students) {
+    try {
+      // Generate default password (can be changed later)
+      const defaultPassword = 'student123';
+      const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+
+      await pool.query(
+        `INSERT INTO users (
+          student_id, first_name, last_name, email, password_hash,
+          phone, class, house_id, guardian_name, guardian_phone, role, is_active
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          student.student_id,
+          student.first_name,
+          student.last_name,
+          student.email,
+          hashedPassword,
+          student.phone || null,
+          student.class,
+          student.house_id,
+          student.guardian_name || null,
+          student.guardian_phone || null,
+          'student',
+          true
+        ]
+      );
+
+      // Log audit
+      await logAudit(
+        user.id,
+        'STUDENT_BULK_ADDED',
+        `Added student: ${student.first_name} ${student.last_name} (${student.student_id})`,
+        ip
+      );
+
+      successful++;
+    } catch (error) {
+      failed++;
+      errors.push(`${student.student_id}: ${error.message}`);
+    }
+  }
+
+  return { successful, failed, errors };
+}
+
+// GET /api/users/students/template - Download sample template
+router.get('/students/template', authenticate, authorize(['housemaster', 'senior_housemaster']), (req, res) => {
+  try {
+    const format = req.query.format || 'xlsx'; // xlsx or csv
+
+    if (format === 'csv') {
+      // Generate CSV template
+      const csvContent = 'student_id,first_name,last_name,email,phone,class,house_id,guardian_name,guardian_phone\n' +
+                        'STU001,John,Doe,john.doe@ghanasco.edu.gh,0244111111,SHS 1A,1,Mr. Doe,0244222222\n' +
+                        'STU002,Jane,Smith,jane.smith@ghanasco.edu.gh,0244333333,SHS 1B,1,Mrs. Smith,0244444444';
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=students_template.csv');
+      res.send(csvContent);
+    } else {
+      // Generate Excel template
+      const wb = XLSX.utils.book_new();
+      const ws_data = [
+        ['student_id', 'first_name', 'last_name', 'email', 'phone', 'class', 'house_id', 'guardian_name', 'guardian_phone'],
+        ['STU001', 'John', 'Doe', 'john.doe@ghanasco.edu.gh', '0244111111', 'SHS 1A', '1', 'Mr. Doe', '0244222222'],
+        ['STU002', 'Jane', 'Smith', 'jane.smith@ghanasco.edu.gh', '0244333333', 'SHS 1B', '1', 'Mrs. Smith', '0244444444']
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(ws_data);
+      XLSX.utils.book_append_sheet(wb, ws, 'Students');
+
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=students_template.xlsx');
+      res.send(buffer);
+    }
+  } catch (error) {
+    console.error('Template generation error:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate template' });
+  }
+});
+
+module.exports = router;
+
+
 // Audit log helper
 async function logAudit(userId, action, details, ipAddress) {
   try {
@@ -17,7 +273,7 @@ async function logAudit(userId, action, details, ipAddress) {
 }
 
 // GET all students (filtered by house for housemasters)
-router.get('/students', authenticate, authorize(['housemaster', 'headmaster']), async (req, res) => {
+router.get('/students', authenticate, authorize(['housemaster', 'senior_housemaster']), async (req, res) => {
   try {
     let query = `
       SELECT 
@@ -50,7 +306,7 @@ router.get('/students', authenticate, authorize(['housemaster', 'headmaster']), 
 });
 
 // POST add new student
-router.post('/students', authenticate, authorize(['housemaster', 'headmaster']), async (req, res) => {
+router.post('/students', authenticate, authorize(['housemaster', 'senior_housemaster']), async (req, res) => {
   try {
     const {
       student_id, first_name, last_name, email, password,
@@ -122,7 +378,7 @@ router.post('/students', authenticate, authorize(['housemaster', 'headmaster']),
 });
 
 // PUT update student
-router.put('/students/:id', authenticate, authorize(['housemaster', 'headmaster']), async (req, res) => {
+router.put('/students/:id', authenticate, authorize(['housemaster', 'senior_housemaster']), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -193,7 +449,7 @@ router.put('/students/:id', authenticate, authorize(['housemaster', 'headmaster'
 });
 
 // DELETE remove student (soft delete - deactivate)
-router.delete('/students/:id', authenticate, authorize(['housemaster', 'headmaster']), async (req, res) => {
+router.delete('/students/:id', authenticate, authorize(['housemaster', 'senior_housemaster']), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -241,7 +497,7 @@ router.delete('/students/:id', authenticate, authorize(['housemaster', 'headmast
 });
 
 // PUT reactivate student
-router.put('/students/:id/reactivate', authenticate, authorize(['headmaster']), async (req, res) => {
+router.put('/students/:id/reactivate', authenticate, authorize(['senior_housemaster']), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -274,7 +530,7 @@ router.put('/students/:id/reactivate', authenticate, authorize(['headmaster']), 
 });
 
 // POST reset student password
-router.post('/students/:id/reset-password', authenticate, authorize(['housemaster', 'headmaster']), async (req, res) => {
+router.post('/students/:id/reset-password', authenticate, authorize(['housemaster', 'senior_housemaster']), async (req, res) => {
   try {
     const { id } = req.params;
     const { new_password } = req.body;

@@ -12,7 +12,7 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'ghanasco-secret-key-2026');
     
     const result = await pool.query(
       'SELECT id, email, role, first_name, last_name, house_id FROM users WHERE id = $1 AND is_active = true',
@@ -21,7 +21,7 @@ const authenticate = async (req, res, next) => {
     
     if (result.rows.length === 0) {
       return res.status(401).json({ 
-        success: false, 
+        success: false,
         message: 'Invalid token' 
       });
     }

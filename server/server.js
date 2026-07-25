@@ -10,26 +10,27 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
+// Routes - CLEAN REGISTRATION
 const authRoutes = require('./routes/auth');
 const housesRoutes = require('./routes/houses');
 const requestsRoutes = require('./routes/requests');
-const adminRoutes = require('./routes/admin');  // ADD THIS
-const usersRoutes = require('./routes/users');
+const adminRoutes = require('./routes/admin');
+const auditLogsRoutes = require('./routes/audit-logs');
 
-app.use('/api/users', usersRoutes);
-app.use('/api/admin', adminRoutes);  // ADD THIS
-app.use('/api/requests', requestsRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/requests', requestsRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/houses', housesRoutes);
+app.use('/api/audit-logs', auditLogsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -53,7 +54,6 @@ pool.query('SELECT NOW()', (err, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
-  console.log(`🗄️  Database: ${process.env.DB_NAME || 'ghanasco_exeat'}`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`✅ Connected to PostgreSQL database`);
 });
